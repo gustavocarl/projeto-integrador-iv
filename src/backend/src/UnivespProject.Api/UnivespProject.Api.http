@@ -1,0 +1,209 @@
+@host = https://localhost:7077
+@token = cole-aqui-o-accessToken-do-login
+
+### Criar usuário (loja nova: vira admin dela)
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "Maria Silva",
+  "email": "maria@exemplo.com",
+  "password": "Senha123",
+  "storeName": "Loja da Maria"
+}
+
+### Criar usuário com o nome de uma loja que já existe (sem diferenciar acentos/maiúsculas):
+### fica pendente e os admins da loja recebem uma notificação para aprovar
+POST {{host}}/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "João Souza",
+  "email": "joao@exemplo.com",
+  "password": "Senha123",
+  "storeName": "loja da maria"
+}
+
+### Login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "maria@exemplo.com",
+  "password": "Senha123"
+}
+
+### Usuário autenticado (requer token)
+GET {{host}}/api/auth/me
+Authorization: Bearer {{token}}
+
+###
+
+### Cadastrar produto
+POST {{host}}/api/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Notebook Pro 14",
+  "sku": "NB-PRO-14",
+  "category": "Notebooks",
+  "salePrice": 6499.90,
+  "costPrice": 4800,
+  "stockQuantity": 10,
+  "minimumStock": 2
+}
+
+### Enviar foto do produto (use a "url" devolvida como imageUrl do produto)
+POST {{host}}/api/products/images
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=FotoProduto
+
+--FotoProduto
+Content-Disposition: form-data; name="file"; filename="produto-exemplo.png"
+Content-Type: image/png
+
+< ../../samples/produto-exemplo.png
+--FotoProduto--
+
+### Recuperar senha (versão simples do protótipo: sem confirmação, não precisa de token)
+POST {{host}}/api/auth/reset-password
+Content-Type: application/json
+
+{
+  "email": "maria@exemplo.com",
+  "newPassword": "NovaSenha123"
+}
+
+### Configurações do usuário logado (tabela user_settings; sem linha = tudo desligado, menos notifyRestock)
+GET {{host}}/api/settings
+Authorization: Bearer {{token}}
+
+### Alterar configurações (só os campos enviados mudam)
+PUT {{host}}/api/settings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "requireProductImage": false,
+  "createProductsOnImport": true,
+  "theme": "Light",
+  "notifyRestock": true
+}
+
+### Listar produtos (busca, categoria, inativos)
+GET {{host}}/api/products?search=notebook&includeInactive=false
+Authorization: Bearer {{token}}
+
+### Vender pelo caixa (cole o id do produto; vai para o lote do mês)
+POST {{host}}/api/sales/checkout
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "channel": "Presencial",
+  "items": [
+    { "productId": "cole-aqui-o-id-do-produto", "quantity": 1 }
+  ]
+}
+
+### Meses com vendas (todos os lotes)
+GET {{host}}/api/sales/months
+Authorization: Bearer {{token}}
+
+### Gerar planilha de vendas de um período (dia, semana, mês ou intervalo; todos os lotes)
+POST {{host}}/api/sales/exports
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "start": "2026-11-02",
+  "end": "2026-11-08",
+  "platform": "linux"
+}
+
+### Planilhas geradas (cole o id para baixar ou excluir)
+GET {{host}}/api/sales/exports
+Authorization: Bearer {{token}}
+
+### Baixar uma planilha gerada
+GET {{host}}/api/sales/exports/cole-aqui-o-id/file
+Authorization: Bearer {{token}}
+
+### Previsão de vendas dos próximos meses (1 a 6; ML.NET, regressão de Poisson)
+GET {{host}}/api/analytics/forecast?months=3
+Authorization: Bearer {{token}}
+
+### Grupos de produtos (k-means; sem groups = melhor silhueta; ou groups=2 a 6)
+GET {{host}}/api/analytics/product-groups
+Authorization: Bearer {{token}}
+
+### Comparar dois meses (ex.: mesmo mês em anos diferentes)
+GET {{host}}/api/sales/comparison?base=2025-10&target=2026-10
+Authorization: Bearer {{token}}
+
+### Usuários da loja (só admin; pendentes primeiro)
+GET {{host}}/api/store/members
+Authorization: Bearer {{token}}
+
+### Aprovar um pedido escolhendo as partes do sistema (sem "areas" = todas)
+POST {{host}}/api/store/members/cole-aqui-o-id/approve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "areas": ["Checkout", "Imports"]
+}
+
+### Trocar as partes de um usuário comum
+PUT {{host}}/api/store/members/cole-aqui-o-id/areas
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "areas": ["Products", "Checkout"]
+}
+
+### Tornar admin (ou "Member" para voltar a usuário comum)
+PUT {{host}}/api/store/members/cole-aqui-o-id/role
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "role": "Admin"
+}
+
+### Remover da loja (ou recusar o pedido)
+DELETE {{host}}/api/store/members/cole-aqui-o-id
+Authorization: Bearer {{token}}
+
+### Renomear a loja (só admin)
+PUT {{host}}/api/store
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Marcelo Eletrônicos"
+}
+
+### Sem loja (removido) ou pendente: entrar em uma loja pelo nome
+### (nome novo = abre a loja como admin, 201; nome existente = pede acesso aos admins, 200)
+POST {{host}}/api/store
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Minha nova loja"
+}
+
+### Central de notificações (não lidas + as 30 mais recentes; ex.: "João pediu acesso à loja")
+GET {{host}}/api/notifications
+Authorization: Bearer {{token}}
+
+### Marcar uma notificação como lida
+POST {{host}}/api/notifications/cole-aqui-o-id/read
+Authorization: Bearer {{token}}
+
+### Marcar todas como lidas
+POST {{host}}/api/notifications/read-all
+Authorization: Bearer {{token}}

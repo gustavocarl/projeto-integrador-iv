@@ -1,0 +1,16 @@
+# Banco PostgreSQL para desenvolvimento local.
+# Subir: docker compose up -d   (ou: podman compose up -d)
+services:
+  postgres:
+    image: docker.io/library/postgres:17
+    container_name: univesp-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - univesp-pgdata:/var/lib/postgresql/data
+
+volumes:
+  univesp-pgdata:

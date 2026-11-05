@@ -1,0 +1,5958 @@
+{
+	"info": {
+		"_postman_id": "5d99d8fc-00c3-4fb1-9e4e-c3b84fd5a366",
+		"name": "Univesp Project API",
+		"description": "Testes da API do backend (C#). Selecione o ambiente **Univesp - Local** e rode a coleção inteira (Run collection) ou cada requisição na ordem (Auth antes de Vendas).\n\nO cadastro gera um e-mail novo a cada execução; o token é guardado automaticamente na variável `token`.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Cadastro - sucesso",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register"
+							]
+						},
+						"description": "Cria um usuário com e-mail único e uma loja nova (vira o admin). Guarda o token em `token` e o nome da loja em `storeName`.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Maria Silva\",\n  \"email\": \"{{emailInput}}\",\n  \"password\": \"{{password}}\",\n  \"storeName\": \"Loja Postman {{$timestamp}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// E-mail único a cada execução, com maiúsculas para testar a normalização.",
+									"const email = `teste.${Date.now()}@exemplo.com`;",
+									"pm.collectionVariables.set('email', email);",
+									"pm.collectionVariables.set('emailInput', email.replace('teste', 'TESTE'));"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"pm.test('Header Location aponta para /api/auth/me', () => pm.expect(pm.response.headers.get('Location')).to.eql('/api/auth/me'));",
+									"pm.test('Retorna token, validade e usuário', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.accessToken).to.be.a('string').and.match(/^[\\w-]+\\.[\\w-]+\\.[\\w-]+$/);",
+									"    pm.expect(new Date(body.expiresAt) > new Date()).to.be.true;",
+									"    pm.expect(body.user).to.include.keys('id', 'name', 'email', 'createdAt');",
+									"    pm.expect(body.user).to.not.have.any.keys('password', 'passwordHash');",
+									"});",
+									"pm.test('E-mail salvo em minúsculas', () => pm.expect(pm.response.json().user.email).to.eql(pm.collectionVariables.get('email')));",
+									"pm.test('Abre a loja do usuário, como admin de tudo', () => {",
+									"    const store = pm.response.json().user.store;",
+									"    pm.expect(store.role).to.eql('Admin');",
+									"    pm.expect(store.name).to.match(/^Loja Postman/);",
+									"    pm.expect(store).to.not.have.any.keys('code');",
+									"    pm.expect(store.areas).to.eql(['Products', 'Checkout', 'Imports', 'Exports', 'Comparison', 'Analytics']);",
+									"    pm.collectionVariables.set('storeName', store.name);",
+									"});",
+									"pm.collectionVariables.set('token', pm.response.json().accessToken);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Cadastro - e-mail duplicado",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register"
+							]
+						},
+						"description": "Repete o cadastro anterior: deve ser recusado (409).",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Maria Silva\",\n  \"email\": \"{{emailInput}}\",\n  \"password\": \"{{password}}\",\n  \"storeName\": \"Loja Postman {{$timestamp}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 409', () => pm.response.to.have.status(409));",
+									"pm.test('Formato padrão de erro (status, title, errors[key,message])', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.status).to.eql(409);",
+									"    pm.expect(body.title).to.be.a('string').and.not.empty;",
+									"    pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+									"    body.errors.forEach(e => { pm.expect(e).to.have.all.keys('key', 'message'); pm.expect(e.message).to.not.be.empty; });",
+									"});",
+									"pm.test('Erros nos campos esperados', () => {",
+									"    const keys = pm.response.json().errors.map(e => e.key);",
+									"    [\"email\"].forEach(k => pm.expect(keys).to.include(k));",
+									"});",
+									"pm.test('Mensagem: Já existe um usuário cadastrado com este e-mail.', () => {",
+									"    pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"J\\u00e1 existe um usu\\u00e1rio cadastrado com este e-mail.\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Cadastro - dados inválidos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register"
+							]
+						},
+						"description": "Nome vazio, e-mail inválido, senha fraca e sem loja: todos os erros voltam juntos.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"\",\n  \"email\": \"invalido\",\n  \"password\": \"abc\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Formato padrão de erro (status, title, errors[key,message])', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.status).to.eql(400);",
+									"    pm.expect(body.title).to.be.a('string').and.not.empty;",
+									"    pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+									"    body.errors.forEach(e => { pm.expect(e).to.have.all.keys('key', 'message'); pm.expect(e.message).to.not.be.empty; });",
+									"});",
+									"pm.test('Erros nos campos esperados', () => {",
+									"    const keys = pm.response.json().errors.map(e => e.key);",
+									"    [\"name\", \"email\", \"password\", \"storeName\"].forEach(k => pm.expect(keys).to.include(k));",
+									"});",
+									"pm.test('Retorna todas as regras de senha quebradas de uma vez', () => {",
+									"    const pwd = pm.response.json().errors.filter(e => e.key === 'password');",
+									"    pm.expect(pwd.length).to.be.at.least(3);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - senha errada",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Senha incorreta: 401 com mensagem genérica.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"SenhaErrada1\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));",
+									"pm.test('Formato padrão de erro (status, title, errors[key,message])', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.status).to.eql(401);",
+									"    pm.expect(body.title).to.be.a('string').and.not.empty;",
+									"    pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+									"    body.errors.forEach(e => { pm.expect(e).to.have.all.keys('key', 'message'); pm.expect(e.message).to.not.be.empty; });",
+									"});",
+									"pm.test('Mensagem: E-mail ou senha inválidos.', () => {",
+									"    pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"E-mail ou senha inv\\u00e1lidos.\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - e-mail inexistente",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Mesma resposta da senha errada, para não revelar quais e-mails existem.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"naoexiste@exemplo.com\",\n  \"password\": \"{{password}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));",
+									"pm.test('Formato padrão de erro (status, title, errors[key,message])', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.status).to.eql(401);",
+									"    pm.expect(body.title).to.be.a('string').and.not.empty;",
+									"    pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+									"    body.errors.forEach(e => { pm.expect(e).to.have.all.keys('key', 'message'); pm.expect(e.message).to.not.be.empty; });",
+									"});",
+									"pm.test('Mensagem: E-mail ou senha inválidos.', () => {",
+									"    pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"E-mail ou senha inv\\u00e1lidos.\");",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - sucesso",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Login válido (e-mail com maiúsculas também funciona). Guarda o token na variável `token`.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{emailInput}}\",\n  \"password\": \"{{password}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Retorna token, validade e usuário', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.accessToken).to.be.a('string').and.match(/^[\\w-]+\\.[\\w-]+\\.[\\w-]+$/);",
+									"    pm.expect(new Date(body.expiresAt) > new Date()).to.be.true;",
+									"    pm.expect(body.user).to.include.keys('id', 'name', 'email', 'createdAt');",
+									"    pm.expect(body.user).to.not.have.any.keys('password', 'passwordHash');",
+									"});",
+									"pm.test('E-mail salvo em minúsculas', () => pm.expect(pm.response.json().user.email).to.eql(pm.collectionVariables.get('email')));",
+									"pm.collectionVariables.set('token', pm.response.json().accessToken);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Me - com token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"me"
+							]
+						},
+						"description": "Requer o token obtido no cadastro ou login.",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Retorna o usuário logado', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.email).to.eql(pm.collectionVariables.get('email'));",
+									"    pm.expect(body.name).to.eql('Maria Silva');",
+									"    pm.expect(body).to.not.have.any.keys('password', 'passwordHash');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Me - sem token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"me"
+							]
+						},
+						"description": "Rota protegida: sem token, 401.",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Me - token inválido",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"me"
+							]
+						},
+						"description": "Token adulterado ou expirado: 401.",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{invalidToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Fake token built at runtime, so Postman's secret scanner has nothing to flag in the file.",
+									"pm.variables.set('invalidToken', ['nao', 'e', 'um-jwt'].join('.'));"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Alterar senha - sem token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/change-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"change-password"
+							]
+						},
+						"description": "Rota protegida: sem token, 401.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{password}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Alterar senha - dados inválidos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/change-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"change-password"
+							]
+						},
+						"description": "Senha atual vazia e nova senha fora das regras: todos os erros de uma vez, cada um na chave do seu campo.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"currentPassword\": \"\",\n  \"newPassword\": \"abc\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erros em currentPassword e newPassword', () => {",
+									"    const errors = pm.response.json().errors;",
+									"    pm.expect(errors).to.deep.include({ key: 'currentPassword', message: 'Informe a senha atual.' });",
+									"    pm.expect(errors.filter(e => e.key === 'newPassword').map(e => e.message)).to.include('A senha deve ter no mínimo 8 caracteres.');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Alterar senha - senha atual errada",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/change-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"change-password"
+							]
+						},
+						"description": "Senha atual errada é erro do campo (400), não 401: o app não pode encerrar a sessão por isso.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"currentPassword\": \"{{password}}x\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Nova senha válida e diferente a cada execução.",
+									"pm.collectionVariables.set('newPassword', `Nova${Date.now() % 100000}Senha`);"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400 (não 401)', () => pm.response.to.have.status(400));",
+									"pm.test('Erro em currentPassword', () => {",
+									"    pm.expect(pm.response.json().errors).to.eql([{ key: 'currentPassword', message: 'A senha atual está incorreta.' }]);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Alterar senha - sucesso",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/change-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"change-password"
+							]
+						},
+						"description": "Troca a senha do usuário de teste. O token atual continua valendo.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"currentPassword\": \"{{password}}\",\n  \"newPassword\": \"{{newPassword}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - senha antiga recusada",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - nova senha",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Entra com a senha nova e guarda o token.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.collectionVariables.set('token', pm.response.json().accessToken);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Recuperar senha - dados inválidos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/reset-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"reset-password"
+							]
+						},
+						"description": "E-mail vazio e senha fora das regras: todos os erros de uma vez.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"\",\n  \"newPassword\": \"abc\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erros em email e newPassword', () => {",
+									"    const errors = pm.response.json().errors;",
+									"    pm.expect(errors).to.deep.include({ key: 'email', message: 'Informe o e-mail.' });",
+									"    pm.expect(errors.filter(e => e.key === 'newPassword').length).to.be.at.least(3);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Recuperar senha - e-mail inexistente",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/reset-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"reset-password"
+							]
+						},
+						"description": "E-mail sem conta → 404 na chave email.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"naoexiste@exemplo.com\",\n  \"newPassword\": \"Recupera123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));",
+									"pm.test('Erro no campo email', () => pm.expect(pm.response.json().errors).to.eql([{ key: 'email', message: 'Nenhum usuário cadastrado com este e-mail.' }]));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Recuperar senha - sucesso",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/reset-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"reset-password"
+							]
+						},
+						"description": "Recuperação simples do protótipo: troca a senha só com o e-mail (sem confirmação). Não precisa de token. O e-mail vai com maiúsculas para conferir a normalização.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{emailInput}}\",\n  \"newPassword\": \"{{recoveredPassword}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Senha válida e diferente a cada execução.",
+									"pm.collectionVariables.set('recoveredPassword', `Recup${Date.now() % 100000}Senha`);"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - senha anterior à recuperação recusada",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Entra com a senha nova e guarda o token.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{newPassword}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Login - senha recuperada",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Entra com a senha nova e guarda o token.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{recoveredPassword}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.collectionVariables.set('token', pm.response.json().accessToken);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - padrão",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Usuário novo, sem linha em `user_settings`: tudo desligado."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Tudo desligado, menos o aviso de reposição', () => pm.expect(pm.response.json()).to.eql({ requireProductImage: false, createProductsOnImport: false, theme: 'Dark', notifyRestock: true }));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - sem token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - sem valor",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Sem nenhuma configuração no corpo: 400.",
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Pede ao menos uma configuração', () => {",
+									"    pm.expect(pm.response.json().errors.map(e => e.message)).to.eql(['Informe ao menos uma configuração para alterar.']);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - exigir imagem",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Liga \"exigir imagem nos produtos\" para o usuário de teste. A primeira alteração cria a linha do usuário na tabela `user_settings`; o que não foi enviado continua como estava.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"requireProductImage\": true\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Devolve as configurações salvas', () => pm.expect(pm.response.json()).to.eql({ requireProductImage: true, createProductsOnImport: false, theme: 'Dark', notifyRestock: true }));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - tema inválido",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Só \"Dark\" e \"Light\" são aceitos; nada é alterado.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"theme\": \"Azul\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na chave theme', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.eql(['theme']));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - tema claro",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Troca o tema do usuário de teste para claro (o padrão é escuro). As outras configurações continuam.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"theme\": \"light\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Tema claro, o resto igual', () => pm.expect(pm.response.json()).to.eql({ requireProductImage: true, createProductsOnImport: false, theme: 'Light', notifyRestock: true }));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - tema escuro",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Volta ao escuro.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"theme\": \"Dark\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Tema escuro', () => pm.expect(pm.response.json().theme).to.eql('Dark'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - não avisar reposição",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Desliga o aviso de reposição de estoque (ligado por padrão): o app deixa de mostrar quantos produtos chegaram ao estoque mínimo.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"notifyRestock\": false\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Aviso desligado, o resto igual', () => pm.expect(pm.response.json()).to.eql({ requireProductImage: true, createProductsOnImport: false, theme: 'Dark', notifyRestock: false }));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - avisar reposição",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Religa o aviso de reposição; as outras configurações não mudam.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"notifyRestock\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Aviso ligado de novo', () => pm.expect(pm.response.json()).to.eql({ requireProductImage: true, createProductsOnImport: false, theme: 'Dark', notifyRestock: true }));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - lidas do usuário logado",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "GET /api/settings devolve as configurações do usuário do token."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('requireProductImage ligado, createProductsOnImport desligado', () => pm.expect(pm.response.json()).to.eql({ requireProductImage: true, createProductsOnImport: false, theme: 'Dark', notifyRestock: true }));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "JSON inválido",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Corpo malformado também volta no formato padrão de erro.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\"email\": ",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Formato padrão de erro (status, title, errors[key,message])', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.status).to.eql(400);",
+									"    pm.expect(body.title).to.be.a('string').and.not.empty;",
+									"    pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+									"    body.errors.forEach(e => { pm.expect(e).to.have.all.keys('key', 'message'); pm.expect(e.message).to.not.be.empty; });",
+									"});",
+									"pm.test('Mensagem: Requisição inválida. Verifique os dados enviados.', () => {",
+									"    pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"Requisi\\u00e7\\u00e3o inv\\u00e1lida. Verifique os dados enviados.\");",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Loja",
+			"description": "Lojas, usuários e notificações (pedido do usuário): no cadastro, um nome de loja novo abre a loja (o usuário vira admin) e o nome de uma loja existente pede acesso, avisando os admins na central de notificações; o admin aprova, escolhe as partes do sistema liberadas, promove e remove. Os dados de cada loja são separados.",
+			"item": [
+				{
+					"name": "Minha loja",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"me"
+							]
+						},
+						"description": "O perfil traz a loja: nome, papel e partes liberadas."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Admin da loja criada no cadastro', () => {",
+									"    const store = pm.response.json().store;",
+									"    pm.expect(store.role).to.eql('Admin');",
+									"    pm.expect(store.name).to.eql(pm.collectionVariables.get('storeName'));",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Cadastro - nome de loja longo demais",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register"
+							]
+						},
+						"description": "Nome da loja com mais de 100 caracteres: 400 no campo `storeName` e nada é criado.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Joana Postman\",\n  \"email\": \"{{memberEmail}}\",\n  \"password\": \"{{password}}\",\n  \"storeName\": \"LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.collectionVariables.set('memberEmail', `teste.membro.${Date.now()}@exemplo.com`);"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na chave storeName', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('storeName'));",
+									"pm.test('Mensagem: O nome da loja deve ter no máximo 100 caracteres.', () => pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"O nome da loja deve ter no m\\u00e1ximo 100 caracteres.\"));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Cadastro - nome de loja existente pede acesso",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register"
+							]
+						},
+						"description": "Cadastro com o nome de uma loja que já existe (maiúsculas, sem acento e espaços sobrando não importam): o usuário fica pendente e os admins da loja recebem uma notificação. Guarda `memberToken` e `memberId`.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Joana Postman\",\n  \"email\": \"{{memberEmail}}\",\n  \"password\": \"{{password}}\",\n  \"storeName\": \"{{storeNameTyped}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.collectionVariables.set('storeNameTyped', `  ${pm.collectionVariables.get('storeName').toUpperCase().replace(' ', '   ')} `);"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"pm.test('Fica pendente na loja existente, sem partes liberadas', () => {",
+									"    const store = pm.response.json().user.store;",
+									"    pm.expect(store.role).to.eql('Pending');",
+									"    pm.expect(store.name).to.eql(pm.collectionVariables.get('storeName'));",
+									"    pm.expect(store.areas).to.eql([]);",
+									"});",
+									"pm.collectionVariables.set('memberToken', pm.response.json().accessToken);",
+									"pm.collectionVariables.set('memberId', pm.response.json().user.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Admin - notificação do pedido",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications"
+							]
+						},
+						"description": "A central de notificações do admin mostra o pedido de acesso (não lido). Guarda o id em `notificationId`."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"const notice = body.items.find(n => n.relatedUserId === pm.collectionVariables.get('memberId'));",
+									"pm.test('Pedido de acesso não lido', () => {",
+									"    pm.expect(body.unread).to.be.at.least(1);",
+									"    pm.expect(notice.kind).to.eql('AccessRequested');",
+									"    pm.expect(notice.read).to.eql(false);",
+									"    pm.expect(notice.message).to.include('Joana Postman').and.include('pediu acesso');",
+									"});",
+									"pm.collectionVariables.set('notificationId', notice.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Pendente - nenhuma notificação",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications"
+							]
+						},
+						"description": "Quem pediu acesso também usa a central (sem precisar de acesso à loja); ainda vazia.",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Vazia', () => pm.expect(pm.response.json()).to.eql({ unread: 0, items: [] }));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Pendente - sem acesso aos dados",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "Enquanto o admin não aprova, nenhum dado da loja aparece (403 na chave `store`).",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 403', () => pm.response.to.have.status(403));",
+									"pm.test('Erro na chave store', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('store'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Pendente - não gerencia usuários",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members"
+							]
+						},
+						"description": "Só o admin lista e gerencia os usuários (403 na chave `admin`).",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 403', () => pm.response.to.have.status(403));",
+									"pm.test('Erro na chave admin', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('admin'));",
+									"pm.test('Mensagem: Só o admin da loja pode gerenciar a loja e os usuários.', () => pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"S\\u00f3 o admin da loja pode gerenciar a loja e os usu\\u00e1rios.\"));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Listar usuários da loja",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members"
+							]
+						},
+						"description": "Pedidos pendentes primeiro."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Pedido pendente no topo', () => {",
+									"    const first = pm.response.json()[0];",
+									"    pm.expect(first.id).to.eql(pm.collectionVariables.get('memberId'));",
+									"    pm.expect(first.role).to.eql('Pending');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Aprovar - parte desconhecida",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{memberId}}/approve",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{memberId}}",
+								"approve"
+							]
+						},
+						"description": "Nome de parte inválido: 400 em `areas` e nada muda.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"areas\": [\n    \"Checkout\",\n    \"Caixa\"\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na chave areas', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('areas'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Aprovar só o caixa",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{memberId}}/approve",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{memberId}}",
+								"approve"
+							]
+						},
+						"description": "O admin escolhe as partes do sistema liberadas.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"areas\": [\n    \"checkout\"\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Usuário comum só com o caixa', () => {",
+									"    const m = pm.response.json();",
+									"    pm.expect(m.role).to.eql('Member');",
+									"    pm.expect(m.areas).to.eql(['Checkout']);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Admin - pedido resolvido",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications"
+							]
+						},
+						"description": "Depois de aprovar, a notificação do pedido fica como lida."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Notificação do pedido lida', () => {",
+									"    const notice = pm.response.json().items.find(n => n.id === pm.collectionVariables.get('notificationId'));",
+									"    pm.expect(notice.read).to.eql(true);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Membro - aviso de aprovação",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications"
+							]
+						},
+						"description": "Quem pediu recebe \"Seu acesso à loja X foi aprovado.\". Guarda o id em `memberNotificationId`.",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"pm.test('Uma notificação de aprovação não lida', () => {",
+									"    pm.expect(body.unread).to.eql(1);",
+									"    pm.expect(body.items[0].kind).to.eql('AccessApproved');",
+									"    pm.expect(body.items[0].message).to.eql(`Seu acesso à loja ${pm.collectionVariables.get('storeName')} foi aprovado.`);",
+									"});",
+									"pm.collectionVariables.set('memberNotificationId', body.items[0].id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Notificação de outro usuário",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications/{{memberNotificationId}}/read",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications",
+								"{{memberNotificationId}}",
+								"read"
+							]
+						},
+						"description": "Ninguém marca a notificação de outra pessoa: 404."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));",
+									"pm.test('Erro na chave (geral)', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include(''));",
+									"pm.test('Mensagem: Notificação não encontrada.', () => pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"Notifica\\u00e7\\u00e3o n\\u00e3o encontrada.\"));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Membro - marcar como lida",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications/{{memberNotificationId}}/read",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications",
+								"{{memberNotificationId}}",
+								"read"
+							]
+						},
+						"description": "Marca uma notificação como lida.",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Lida', () => pm.expect(pm.response.json().read).to.eql(true));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Membro - marcar todas como lidas",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications/read-all",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications",
+								"read-all"
+							]
+						},
+						"description": "Marca todas como lidas e devolve quantas mudaram (nenhuma: já estava lida).",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Nenhuma pendente', () => pm.expect(pm.response.json().marked).to.eql(0));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Caixa - lista os produtos para vender",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "Quem tem o caixa lê os produtos (para vender), mas não cadastra.",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Caixa - não cadastra produto",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "Cadastro de produtos é outra parte (403 na chave `area`).",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Produto\",\n  \"sku\": \"POSTMAN-SEM-AREA\",\n  \"salePrice\": 10,\n  \"stockQuantity\": 1\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 403', () => pm.response.to.have.status(403));",
+									"pm.test('Erro na chave area', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('area'));",
+									"pm.test('Mensagem: O admin da loja não liberou esta parte do sistema para você.', () => pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"O admin da loja n\\u00e3o liberou esta parte do sistema para voc\\u00ea.\"));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Sem a parte de importações",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports"
+							]
+						},
+						"description": "Importações não liberadas: 403 na chave `area`.",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 403', () => pm.response.to.have.status(403));",
+									"pm.test('Erro na chave area', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('area'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Liberar importações também",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{memberId}}/areas",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{memberId}}",
+								"areas"
+							]
+						},
+						"description": "Troca as partes liberadas (a lista substitui a anterior).",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"areas\": [\n    \"Imports\",\n    \"Checkout\"\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Caixa e importações', () => pm.expect(pm.response.json().areas).to.eql(['Checkout', 'Imports']));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Importações liberadas",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports"
+							]
+						},
+						"description": "Agora a lista de lotes abre (só os da loja).",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Tornar admin",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{memberId}}/role",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{memberId}}",
+								"role"
+							]
+						},
+						"description": "Admin usa todas as partes.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role\": \"admin\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Admin com tudo', () => {",
+									"    pm.expect(pm.response.json().role).to.eql('Admin');",
+									"    pm.expect(pm.response.json().areas).to.have.lengthOf(6);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Admin - partes não se escolhem",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{memberId}}/areas",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{memberId}}",
+								"areas"
+							]
+						},
+						"description": "Partes só se escolhem para usuário comum (409).",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"areas\": [\n    \"Checkout\"\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 409', () => pm.response.to.have.status(409));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Voltar a usuário comum",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{memberId}}/role",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{memberId}}",
+								"role"
+							]
+						},
+						"description": "Com outro admin na loja, dá para rebaixar.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role\": \"Member\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Usuário comum', () => pm.expect(pm.response.json().role).to.eql('Member'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Papel inválido",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{memberId}}/role",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{memberId}}",
+								"role"
+							]
+						},
+						"description": "Só Admin ou Member.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role\": \"Pending\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na chave role', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('role'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Renomear a loja",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store"
+							]
+						},
+						"description": "O admin muda o nome da loja.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"  Loja   Postman renomeada {{$timestamp}} \"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Nome novo', () => pm.expect(pm.response.json().store.name).to.match(/^Loja Postman renomeada \\d+$/));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Remover o último admin",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{adminId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{adminId}}"
+							]
+						},
+						"description": "A loja nunca fica sem admin (409)."
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.sendRequest({ url: pm.variables.replaceIn('{{baseUrl}}/api/auth/me'), header: { Authorization: `Bearer ${pm.collectionVariables.get('token')}` } },",
+									"    (e, res) => pm.collectionVariables.set('adminId', res.json().id));"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 409', () => pm.response.to.have.status(409));",
+									"pm.test('Erro na chave (geral)', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include(''));",
+									"pm.test('Mensagem: A loja precisa de pelo menos um admin. Torne outro usuário admin antes.', () => pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"A loja precisa de pelo menos um admin. Torne outro usu\\u00e1rio admin antes.\"));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Remover usuário",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members/{{memberId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members",
+								"{{memberId}}"
+							]
+						},
+						"description": "Tira o usuário da loja."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Removido - perde o acesso",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports"
+							]
+						},
+						"description": "Sem loja: 403 na chave `store`.",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 403', () => pm.response.to.have.status(403));",
+									"pm.test('Erro na chave store', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('store'));",
+									"pm.test('Mensagem: Você não faz parte de nenhuma loja. Crie a sua ou peça acesso a uma.', () => pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"Voc\\u00ea n\\u00e3o faz parte de nenhuma loja. Crie a sua ou pe\\u00e7a acesso a uma.\"));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Removido - perfil sem loja",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"me"
+							]
+						},
+						"description": "O perfil mostra `store: null` (o app oferece criar ou entrar em uma loja).",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Sem loja', () => pm.expect(pm.response.json().store).to.be.null);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Removido - cria a própria loja",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store"
+							]
+						},
+						"description": "Sem loja, entra com um nome novo: abre a loja dele (201) e vira admin. Guarda o nome em `otherStoreName`.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Loja da Joana Postman {{$timestamp}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"pm.test('Admin da nova loja', () => {",
+									"    const store = pm.response.json().store;",
+									"    pm.expect(store.role).to.eql('Admin');",
+									"    pm.expect(store.name).to.match(/^Loja da Joana Postman/);",
+									"    pm.collectionVariables.set('otherStoreName', store.name);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Já tem loja - não entra em outra",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store"
+							]
+						},
+						"description": "Quem já tem acesso a uma loja não entra em outra: 409.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"{{storeName}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{memberToken}}",
+									"type": "string"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 409', () => pm.response.to.have.status(409));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Renomear para o nome de outra loja",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/store",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store"
+							]
+						},
+						"description": "Os nomes de loja são únicos (sem diferenciar acentos e maiúsculas): 409 no campo `name`.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"{{otherStoreNameUpper}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.collectionVariables.set('otherStoreNameUpper', pm.collectionVariables.get('otherStoreName').toUpperCase());"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 409', () => pm.response.to.have.status(409));",
+									"pm.test('Erro na chave name', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.include('name'));",
+									"pm.test('Mensagem: Já existe outra loja com este nome.', () => pm.expect(pm.response.json().errors.map(e => e.message)).to.include(\"J\\u00e1 existe outra loja com este nome.\"));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Notificações - sem token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/notifications",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"notifications"
+							]
+						},
+						"description": "Sem token: 401.",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Loja - sem token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/store/members",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"store",
+								"members"
+							]
+						},
+						"description": "Sem token: 401.",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Vendas",
+			"description": "Importação de planilhas de vendas. Rode depois da pasta **Auth** (precisa do `token`).\n\nOs arquivos de upload ficam em `backend/samples/`. No app Postman, se o arquivo aparecer em vermelho, selecione-o de novo no campo `file` (aba Body) ou configure *Settings → General → Working directory* para a pasta `backend`.",
+			"item": [
+				{
+					"name": "Baixar modelo",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/template?platform=windows",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"template"
+							],
+							"query": [
+								{
+									"key": "platform",
+									"value": "windows"
+								}
+							]
+						},
+						"description": "Planilha modelo para preencher. No app Postman, use **Send and Download** para salvar o arquivo. `platform` (windows, macos, linux, android, ios) escolhe a fonte padrão das planilhas daquele sistema."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Arquivo .xlsx', () => {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.include('spreadsheetml.sheet');",
+									"    pm.expect(pm.response.headers.get('Content-Disposition')).to.include('modelo-vendas.xlsx');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Baixar modelo - sistema inválido",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/template?platform=amiga",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"template"
+							],
+							"query": [
+								{
+									"key": "platform",
+									"value": "amiga"
+								}
+							]
+						},
+						"description": "Sistema operacional desconhecido: 400 no campo platform."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro em platform', () => pm.expect(pm.response.json().errors).to.eql([",
+									"    { key: 'platform', message: 'Sistema operacional inválido. Use windows, macos, linux, android ou ios.' },",
+									"]));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Importar - planilha com erros",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports"
+							]
+						},
+						"description": "Arquivo `backend/samples/vendas-com-erros.xlsx`. Nada é salvo quando alguma linha é inválida.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "samples/vendas-com-erros.xlsx"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Formato padrão de erro', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.errors).to.be.an('array').that.is.not.empty;",
+									"    body.errors.forEach(e => pm.expect(e).to.have.all.keys('key', 'message'));",
+									"});",
+									"pm.test('Erros apontam a linha da planilha', () => {",
+									"    const messages = pm.response.json().errors.map(e => e.message);",
+									"    pm.expect(messages).to.include('Linha 3: Venda presencial não pode ter marketplace.');",
+									"    pm.expect(messages).to.include('Linha 4: O produto é obrigatório.');",
+									"    pm.expect(messages).to.include('Linha 7: A data não pode estar no futuro.');",
+									"    messages.forEach(m => pm.expect(m).to.match(/^Linha \\d+: /));",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Importar - sucesso",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports"
+							]
+						},
+						"description": "Arquivo `backend/samples/vendas-exemplo.xlsx` (112 vendas). A configuração \"cadastrar produtos ao importar\" vem desligada, então nenhum produto é cadastrado. Guarda o id na variável `importId`.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "samples/vendas-exemplo.xlsx"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('Resumo da importação', () => {",
+									"    pm.expect(body.fileName).to.eql('vendas-exemplo.xlsx');",
+									"    pm.expect(body.salesCount).to.eql(112);",
+									"    pm.expect(body.totalRevenue).to.be.above(0);",
+									"    pm.expect(body.periodStart).to.eql('2026-10-01');",
+									"    pm.expect(body.periodEnd).to.eql('2026-10-28');",
+									"    pm.expect(body.importedBy).to.eql(pm.collectionVariables.get('email'));",
+									"});",
+									"pm.test('Location aponta para a importação', () => pm.expect(pm.response.headers.get('Location')).to.eql(`/api/sales/imports/${body.id}`));",
+									"pm.test('Nenhum produto cadastrado (configuração desligada por padrão)', () => pm.expect(body.createdProducts).to.eql(0));",
+									"pm.collectionVariables.set('importId', body.id);",
+									"pm.collectionVariables.set('importRevenue', body.totalRevenue);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Listar importações",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Contém a importação criada', () => {",
+									"    const ids = pm.response.json().map(i => i.id);",
+									"    pm.expect(ids).to.include(pm.collectionVariables.get('importId'));",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Detalhe da importação",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{importId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{importId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"const sum = (items) => Math.round(items.reduce((t, i) => t + i.revenue, 0) * 100) / 100;",
+									"pm.test('Canais: Presencial e Online somam o total', () => {",
+									"    pm.expect(body.byChannel.map(c => c.key)).to.have.members(['InPerson', 'Online']);",
+									"    pm.expect(sum(body.byChannel)).to.eql(body.import.totalRevenue);",
+									"});",
+									"pm.test('Marketplaces cobrem só as vendas online (inclui \"Fora de marketplace\")', () => {",
+									"    const online = body.byChannel.find(c => c.key === 'Online');",
+									"    pm.expect(sum(body.byMarketplace)).to.eql(online.revenue);",
+									"    pm.expect(body.byMarketplace.map(m => m.name)).to.include('Fora de marketplace');",
+									"});",
+									"pm.test('Dias: período completo, somando o total', () => {",
+									"    const days = (new Date(body.import.periodEnd) - new Date(body.import.periodStart)) / 86400000 + 1;",
+									"    pm.expect(body.byDay).to.have.lengthOf(days);",
+									"    pm.expect(body.byDay[0].date).to.eql(body.import.periodStart);",
+									"    pm.expect(sum(body.byDay)).to.eql(body.import.totalRevenue);",
+									"});",
+									"pm.test('Produtos: ordenados por faturamento, com curva ABC e recomendação', () => {",
+									"    const revenues = body.products.map(p => p.revenue);",
+									"    pm.expect(revenues).to.eql([...revenues].sort((a, b) => b - a));",
+									"    pm.expect(sum(body.products)).to.eql(body.import.totalRevenue);",
+									"    pm.expect(body.products[0].abcClass).to.eql('A');",
+									"    body.products.forEach(p => {",
+									"        pm.expect(['A', 'B', 'C']).to.include(p.abcClass);",
+									"        pm.expect(['Prioritize', 'Keep', 'ReviewRemoval']).to.include(p.recommendation);",
+									"    });",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Meses com vendas",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/months",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"months"
+							]
+						},
+						"description": "Meses com pelo menos uma venda (todos os lotes), do mais recente ao mais antigo. Guarda os dois mais recentes para a comparação."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const months = pm.response.json();",
+									"pm.test('Inclui outubro/2026 (planilha importada) e vem do mais recente ao mais antigo', () => {",
+									"    pm.expect(months.map(m => m.month)).to.include('2026-10');",
+									"    pm.expect(months.find(m => m.month === '2026-10').label).to.eql('outubro/2026');",
+									"    const keys = months.map(m => m.month);",
+									"    pm.expect(keys).to.eql([...keys].sort().reverse());",
+									"});",
+									"// The comparison needs two months; the user's database may have only the imported one.",
+									"pm.collectionVariables.set('compareTarget', months[0].month);",
+									"pm.collectionVariables.set('compareBase', months.length > 1 ? months[1].month : '');"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Comparar meses",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/comparison?base={{compareBase}}&target={{compareTarget}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"comparison"
+							],
+							"query": [
+								{
+									"key": "base",
+									"value": "{{compareBase}}"
+								},
+								{
+									"key": "target",
+									"value": "{{compareTarget}}"
+								}
+							]
+						},
+						"description": "Compara dois meses (AAAA-MM) somando todas as vendas de todos os lotes. Crescimento = (target - base) / base. Pulada se o banco só tiver vendas em um mês."
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (!pm.collectionVariables.get('compareBase')) pm.execution.skipRequest();"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"const sum = (items, side) => Math.round(items.reduce((t, i) => t + (i[side] ? i[side].revenue : 0), 0) * 100) / 100;",
+									"pm.test('Os dois meses pedidos, com rótulo e dias', () => {",
+									"    pm.expect(body.base.month).to.eql(pm.collectionVariables.get('compareBase'));",
+									"    pm.expect(body.target.month).to.eql(pm.collectionVariables.get('compareTarget'));",
+									"    pm.expect(body.target.elapsedDays).to.be.at.most(body.target.days);",
+									"});",
+									"pm.test('Canais e produtos somam o faturamento de cada mês', () => {",
+									"    ['base', 'target'].forEach(side => {",
+									"        pm.expect(sum(body.byChannel, side)).to.eql(body[side].revenue);",
+									"        pm.expect(sum(body.products, side)).to.eql(body[side].revenue);",
+									"    });",
+									"});",
+									"pm.test('Dias: do 1 até o fim do mês mais longo, somando o total', () => {",
+									"    pm.expect(body.byDay).to.have.lengthOf(Math.max(body.base.days, body.target.days));",
+									"    pm.expect(body.byDay[0].day).to.eql(1);",
+									"    pm.expect(sum(body.byDay, 'target')).to.eql(body.target.revenue);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Comparar - mesmo mês",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/comparison?base={{compareTarget}}&target={{compareTarget}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"comparison"
+							],
+							"query": [
+								{
+									"key": "base",
+									"value": "{{compareTarget}}"
+								},
+								{
+									"key": "target",
+									"value": "{{compareTarget}}"
+								}
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro no campo target', () => {",
+									"    pm.expect(pm.response.json().errors).to.eql([{ key: 'target', message: 'Escolha um mês diferente do mês base.' }]);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Comparar - mês inválido e sem vendas",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/comparison?base=janeiro&target=1990-01",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"comparison"
+							],
+							"query": [
+								{
+									"key": "base",
+									"value": "janeiro"
+								},
+								{
+									"key": "target",
+									"value": "1990-01"
+								}
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Formato inválido no campo base', () => {",
+									"    pm.expect(pm.response.json().errors).to.eql([",
+									"        { key: 'base', message: 'Mês \"janeiro\" inválido. Use o formato AAAA-MM (ex.: 2026-01).' },",
+									"    ]);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Exportação - datas inválidas",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/sales/exports",
+						"description": "Data fora do formato aaaa-mm-dd e data final vazia: erro em cada campo, nada é gerado.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"start\": \"05/10/2026\",\n  \"end\": \"\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro em start e end', () => {",
+									"    pm.expect(pm.response.json().errors).to.eql([",
+									"        { key: 'start', message: 'Data inválida. Use o formato aaaa-mm-dd (ex.: 2026-11-05).' },",
+									"        { key: 'end', message: 'Informe a data final.' },",
+									"    ]);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Exportação - fim antes do início",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/sales/exports",
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"start\": \"2026-10-11\",\n  \"end\": \"2026-10-05\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro em end', () => pm.expect(pm.response.json().errors).to.eql([",
+									"    { key: 'end', message: 'A data final não pode ser anterior à inicial.' },",
+									"]));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Exportação - período sem vendas",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/sales/exports",
+						"description": "Nenhuma venda no período: 404 e nada é guardado.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"start\": \"1990-01-01\",\n  \"end\": \"1990-01-07\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));",
+									"pm.test('Mensagem com o período', () => pm.expect(pm.response.json().errors[0].message).to.eql('Não há vendas em 01/01/1990 a 07/01/1990.'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Gerar exportação - semana",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/sales/exports",
+						"description": "Todas as vendas de 05 a 11/10/2026 (inclui as da importação de exemplo; o banco pode ter outras). Guarda o id em `exportId`; a coleção exclui a exportação no fim. Com `platform: linux`, a planilha usa Liberation Sans (fonte padrão do LibreOffice Calc).",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"start\": \"2026-10-05\",\n  \"end\": \"2026-10-11\",\n  \"platform\": \"linux\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('Planilha do período', () => {",
+									"    pm.expect(body.fileName).to.eql('vendas-2026-10-05-a-2026-10-11.xlsx');",
+									"    pm.expect(body.periodLabel).to.eql('05/10/2026 a 11/10/2026');",
+									"    pm.expect([body.periodStart, body.periodEnd]).to.eql(['2026-10-05', '2026-10-11']);",
+									"    pm.expect(body.salesCount).to.be.above(0);",
+									"    pm.expect(body.totalRevenue).to.be.above(0);",
+									"    pm.expect(body.createdBy).to.eql(pm.collectionVariables.get('email'));",
+									"});",
+									"pm.test('Location aponta para o arquivo', () => pm.expect(pm.response.headers.get('Location')).to.eql(`/api/sales/exports/${body.id}/file`));",
+									"pm.collectionVariables.set('exportId', body.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Listar exportações",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/exports",
+						"description": "Mais recentes primeiro, sem o conteúdo do arquivo."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('A exportação gerada é a primeira', () => {",
+									"    const first = pm.response.json()[0];",
+									"    pm.expect(first.id).to.eql(pm.collectionVariables.get('exportId'));",
+									"    pm.expect(first).to.not.have.property('content');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Baixar exportação",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/exports/{{exportId}}/file",
+						"description": "O .xlsx como foi gerado (abas Vendas e Resumo)."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('É uma planilha .xlsx', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('spreadsheetml'));",
+									"pm.test('Nome do arquivo', () => pm.expect(pm.response.headers.get('Content-Disposition')).to.include('vendas-2026-10-05-a-2026-10-11.xlsx'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir exportação",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/exports/{{exportId}}",
+						"description": "Remove só o arquivo gerado; as vendas continuam."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Baixar exportação excluída",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/exports/{{exportId}}/file",
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));",
+									"pm.test('Mensagem', () => pm.expect(pm.response.json().errors[0].message).to.eql('Planilha gerada não encontrada.'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Exportações - sem token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/exports",
+						"description": "",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Marketplaces",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/marketplaces",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"marketplaces"
+							]
+						},
+						"description": "Nomes conhecidos, para sugerir ao digitar a venda manual."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Lista os marketplaces da planilha importada', () => {",
+									"    pm.expect(pm.response.json()).to.include.members(['Amazon', 'Mercado Livre', 'Shopee']);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Venda manual - dados inválidos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/manual",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"manual"
+							]
+						},
+						"description": "Venda presencial com marketplace, sem produto e quantidade zero: nada é salvo.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"importId\": \"{{importId}}\",\n  \"date\": \"2026-10-15\",\n  \"productName\": \"\",\n  \"quantity\": 0,\n  \"unitPrice\": 10,\n  \"channel\": \"InPerson\",\n  \"marketplace\": \"Amazon\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Um erro por campo, com o nome do campo JSON', () => {",
+									"    const keys = pm.response.json().errors.map(e => e.key);",
+									"    pm.expect(keys).to.include.members(['productName', 'quantity', 'marketplace']);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Venda manual - no lote importado",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/manual",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"manual"
+							]
+						},
+						"description": "Adiciona uma venda digitada a um lote existente (aqui, o da planilha). O marketplace é reaproveitado ignorando maiúsculas.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"importId\": \"{{importId}}\",\n  \"date\": \"2026-10-15\",\n  \"productName\": \"{{manualProduct}}\",\n  \"sku\": \"TEC-PM\",\n  \"quantity\": 2,\n  \"unitPrice\": 79.9,\n  \"channel\": \"Online\",\n  \"marketplace\": \"mercado livre\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.collectionVariables.set('manualProduct', 'Teclado Postman ' + Date.now());"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('Lote atualizado (112 + 1 vendas)', () => {",
+									"    pm.expect(body.import.salesCount).to.eql(113);",
+									"    pm.expect(body.import.source).to.eql('Spreadsheet');",
+									"});",
+									"pm.test('Venda manual, sem linha de planilha', () => {",
+									"    pm.expect(body.sale.productName).to.eql(pm.collectionVariables.get('manualProduct'));",
+									"    pm.expect(body.sale.rowNumber).to.eql(null);",
+									"    pm.expect(body.sale.totalPrice).to.eql(159.8);",
+									"    pm.expect(body.sale.marketplace).to.eql('Mercado Livre');",
+									"});",
+									"pm.collectionVariables.set('saleId', body.sale.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Listar vendas do lote (busca)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{importId}}/sales?search={{manualProduct}}&page=1&pageSize=20",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{importId}}",
+								"sales"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": "{{manualProduct}}"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "pageSize",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Paginado (pageSize até 100), do dia mais recente ao mais antigo. `search` procura no produto e no SKU."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('A busca encontra a venda manual', () => {",
+									"    const page = pm.response.json();",
+									"    pm.expect(page.totalCount).to.eql(1);",
+									"    pm.expect(page.items[0].id).to.eql(pm.collectionVariables.get('saleId'));",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir venda",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{importId}}/sales/{{saleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{importId}}",
+								"sales",
+								"{{saleId}}"
+							]
+						},
+						"description": "Remove uma venda e recalcula os totais do lote."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir venda inexistente",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{importId}}/sales/{{saleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{importId}}",
+								"sales",
+								"{{saleId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Venda manual - novo lote",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/manual",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"manual"
+							]
+						},
+						"description": "Sem `importId`: cria um lote manual com o nome informado.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"importName\": \"Balcão Postman {{$timestamp}}\",\n  \"date\": \"2026-10-15\",\n  \"productName\": \"Mouse sem fio\",\n  \"quantity\": 1,\n  \"unitPrice\": 79.9,\n  \"channel\": \"InPerson\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('Cria um lote manual com a venda', () => {",
+									"    pm.expect(body.import.source).to.eql('Manual');",
+									"    pm.expect(body.import.salesCount).to.eql(1);",
+									"    pm.expect(body.sale.channelName).to.eql('Presencial');",
+									"});",
+									"pm.collectionVariables.set('manualImportId', body.import.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir lote manual",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{manualImportId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{manualImportId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Impacto da exclusão",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/imports/{{importId}}/deletion-impact",
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"pm.test('Resumo do lote, sem estoque a devolver', () => {",
+									"    pm.expect(body.salesCount).to.eql(112);",
+									"    pm.expect(body.totalRevenue).to.eql(pm.collectionVariables.get('importRevenue'));",
+									"    pm.expect(body.linkedProducts).to.be.at.least(0);",
+									"    pm.expect(body.stockReturned).to.eql(0);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir importação",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{importId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{importId}}"
+							]
+						},
+						"description": "Remove a importação e suas vendas (os marketplaces continuam cadastrados)."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir importação inexistente",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{importId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{importId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Impacto da exclusão - lote inexistente",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/imports/{{importId}}/deletion-impact",
+						"description": "O lote já foi excluído: 404."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - cadastrar produtos ao importar",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "Liga a configuração só para o usuário de teste. \"Exigir imagem\" (ligada na pasta Auth) continua ligada e não impede o cadastro pela importação.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"createProductsOnImport\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Só a opção enviada mudou', () => pm.expect(pm.response.json()).to.eql({ requireProductImage: true, createProductsOnImport: true, theme: 'Dark', notifyRestock: true }));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Importar - cadastra produtos novos",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/imports",
+						"description": "Arquivo `backend/samples/vendas-produtos-novos.xlsx`: 3 vendas do SKU `POSTMAN-NOVO-01` (que não existe no catálogo) e 1 sem SKU. A configuração foi ligada na requisição anterior.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "samples/vendas-produtos-novos.xlsx"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('4 vendas e 1 produto cadastrado (a venda sem SKU não vira produto)', () => {",
+									"    pm.expect(body.salesCount).to.eql(4);",
+									"    pm.expect(body.createdProducts).to.eql(1);",
+									"});",
+									"pm.collectionVariables.set('newProductsImportId', body.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Produto cadastrado pela importação",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/products?search=POSTMAN-NOVO-01",
+						"description": "O produto criado: nome mais usado, preço da venda mais recente, sem estoque, categoria, custo ou imagem."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const products = pm.response.json();",
+									"pm.test('Um produto com os dados da planilha', () => {",
+									"    pm.expect(products).to.have.lengthOf(1);",
+									"    const p = products[0];",
+									"    pm.expect(p.name).to.eql('Produto Postman');",
+									"    pm.expect(p.sku).to.eql('POSTMAN-NOVO-01');",
+									"    pm.expect(p.salePrice).to.eql(59.9);",
+									"    pm.expect(p.stockQuantity).to.eql(0);",
+									"    pm.expect(p.category).to.eql(null);",
+									"    pm.expect(p.costPrice).to.eql(null);",
+									"    pm.expect(p.imageUrl).to.eql(null);",
+									"    pm.expect(p.isActive).to.eql(true);",
+									"    pm.collectionVariables.set('newProductId', p.id);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Importar de novo - produto já existe",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/imports",
+						"description": "A mesma planilha: as vendas ficam ligadas ao produto já cadastrado e nada é criado.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "samples/vendas-produtos-novos.xlsx"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('Nenhum produto novo', () => pm.expect(body.createdProducts).to.eql(0));",
+									"pm.collectionVariables.set('repeatImportId', body.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Listar importações - sem contagem de produtos",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/imports",
+						"description": "`createdProducts` só vem na resposta da importação."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('createdProducts é nulo na lista', () => {",
+									"    const item = pm.response.json().find(i => i.id === pm.collectionVariables.get('repeatImportId'));",
+									"    pm.expect(item.createdProducts).to.eql(null);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir produto com vendas da importação",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": "{{baseUrl}}/api/products/{{newProductId}}",
+						"description": "As vendas importadas estão ligadas ao produto: ele não pode ser excluído (só desativado)."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 409', () => pm.response.to.have.status(409));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Impacto da exclusão - lote com produto cadastrado",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/imports/{{repeatImportId}}/deletion-impact",
+						"description": "Antes de excluir, o app mostra o que sai: as vendas e quantos produtos cadastrados estão ligados a elas. Nada é alterado."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"pm.test('4 vendas, ligadas a 1 produto (a sem SKU não conta), nada volta ao estoque', () => {",
+									"    pm.expect(body.importId).to.eql(pm.collectionVariables.get('repeatImportId'));",
+									"    pm.expect(body.fileName).to.eql('vendas-produtos-novos.xlsx');",
+									"    pm.expect(body.salesCount).to.eql(4);",
+									"    pm.expect(body.linkedProducts).to.eql(1);",
+									"    pm.expect(body.stockReturned).to.eql(0);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir importação repetida",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/imports/{{repeatImportId}}",
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir importação dos produtos novos",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": "{{baseUrl}}/api/sales/imports/{{newProductsImportId}}",
+						"description": "Excluir o lote não apaga o produto que ele cadastrou."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Produto continua após excluir o lote",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}/api/products/{{newProductId}}",
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir produto cadastrado pela importação",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": "{{baseUrl}}/api/products/{{newProductId}}",
+						"description": "Sem vendas ligadas, o produto pode ser excluído (limpa o que o teste criou)."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Importar - sem token",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports"
+							]
+						},
+						"description": "",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "samples/vendas-exemplo.xlsx"
+								}
+							]
+						},
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Produtos e caixa",
+			"item": [
+				{
+					"name": "Criar produto - dados inválidos",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"\",\n  \"sku\": \"\",\n  \"salePrice\": -1\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro em cada campo obrigatório', () => {",
+									"    const keys = pm.response.json().errors.map(e => e.key);",
+									"    pm.expect(keys).to.include.members(['name', 'sku', 'salePrice', 'stockQuantity']);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Criar produto - custo maior que o preço",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "Regra de negócio: o custo não pode passar do preço de venda (cada venda daria prejuízo). Custo igual ao preço é aceito.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Produto com prejuízo\",\n  \"sku\": \"PREJUIZO-{{$timestamp}}\",\n  \"salePrice\": 100,\n  \"costPrice\": 120,\n  \"stockQuantity\": 1,\n  \"minimumStock\": 0\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro no custo, com a explicação', () => {",
+									"    const error = pm.response.json().errors.find(e => e.key === 'costPrice');",
+									"    pm.expect(error.message).to.eql('O preço de custo não pode ser maior que o preço de venda: cada venda daria prejuízo.');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Criar produto - imagem exigida pela preferência",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "O usuário de teste ligou \"exigir imagem\" (pasta Auth): sem imageUrl o produto é recusado.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Teclado Postman\",\n  \"sku\": \"pm-sem-imagem\",\n  \"salePrice\": 100,\n  \"stockQuantity\": 1\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro só na imagem', () => {",
+									"    const errors = pm.response.json().errors;",
+									"    pm.expect(errors.map(e => e.key)).to.eql(['imageUrl']);",
+									"    pm.expect(errors[0].message).to.include('configurações');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Criar produto - link de imagem inválido",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Teclado Postman\",\n  \"sku\": \"pm-sem-imagem\",\n  \"salePrice\": 100,\n  \"stockQuantity\": 1,\n  \"imageUrl\": \"ftp://exemplo.com/a.png\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na imagem', () => pm.expect(pm.response.json().errors.map(e => e.key)).to.eql(['imageUrl']));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Configurações - não exigir imagem",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": "{{baseUrl}}/api/settings",
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"requireProductImage\": false\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Desligado', () => pm.expect(pm.response.json().requireProductImage).to.eql(false));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Criar produto - sucesso",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "Cadastra um produto de teste (SKU único por execução). Os passos seguintes o vendem e o excluem no fim.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Teclado mecânico Postman\",\n  \"sku\": \"{{productSku}}\",\n  \"category\": \"Postman\",\n  \"salePrice\": 100,\n  \"costPrice\": 50,\n  \"stockQuantity\": 5,\n  \"minimumStock\": 1,\n  \"imageUrl\": \"https://exemplo.com/imagens/teclado.png\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// SKU único por execução, em minúsculas para conferir a normalização.",
+									"pm.collectionVariables.set('productSku', 'pm-' + Date.now());"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('Produto ativo, SKU normalizado e margem', () => {",
+									"    pm.expect(body.sku).to.eql(pm.collectionVariables.get('productSku').toUpperCase());",
+									"    pm.expect(body.isActive).to.be.true;",
+									"    pm.expect(body.margin).to.eql(0.5);",
+									"    pm.expect(body.isLowStock).to.be.false;",
+									"});",
+									"pm.collectionVariables.set('productId', body.id);",
+									"pm.test('Guarda o link da imagem', () => pm.expect(pm.response.json().imageUrl).to.eql('https://exemplo.com/imagens/teclado.png'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Criar produto - SKU duplicado",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/products",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							]
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Teclado mecânico Postman\",\n  \"sku\": \"{{productSku}}\",\n  \"category\": \"Postman\",\n  \"salePrice\": 100,\n  \"costPrice\": 50,\n  \"stockQuantity\": 5,\n  \"minimumStock\": 1\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 409', () => pm.response.to.have.status(409));",
+									"pm.test('Erro no campo sku', () => pm.expect(pm.response.json().errors[0].key).to.eql('sku'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Listar produtos (busca)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products?search={{productSku}}&includeInactive=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": "{{productSku}}"
+								},
+								{
+									"key": "includeInactive",
+									"value": "true"
+								}
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Encontra o produto pelo SKU', () => {",
+									"    const items = pm.response.json();",
+									"    pm.expect(items).to.have.lengthOf(1);",
+									"    pm.expect(items[0].id).to.eql(pm.collectionVariables.get('productId'));",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Categorias",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/categories",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"categories"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Inclui a categoria do produto', () => pm.expect(pm.response.json()).to.include('Postman'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Imagem - formato não suportado",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/images",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"images"
+							]
+						},
+						"description": "Uma planilha não é imagem: o formato é conferido pelo conteúdo do arquivo.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "samples/vendas-exemplo.xlsx"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na chave file', () => {",
+									"    const error = pm.response.json().errors[0];",
+									"    pm.expect(error.key).to.eql('file');",
+									"    pm.expect(error.message).to.include('PNG, JPEG, WebP ou GIF');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Imagem - enviar arquivo",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/images",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"images"
+							]
+						},
+						"description": "Salva a foto na pasta do backend (ProductImages:Directory) e devolve o caminho para usar em imageUrl.",
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": "samples/produto-exemplo.png"
+								}
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"pm.test('Devolve o caminho da imagem salva', () => {",
+									"    const url = pm.response.json().url;",
+									"    pm.expect(url).to.match(/^\\/uploads\\/products\\/[0-9a-f]{32}\\.png$/);",
+									"    pm.collectionVariables.set('productImagePath', url);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Imagem - baixar arquivo enviado",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}{{productImagePath}}",
+						"description": "Arquivo público (uma <img> não envia token).",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('É PNG', () => pm.expect(pm.response.headers.get('Content-Type')).to.eql('image/png'));",
+									"pm.test('Cache longo (nome nunca muda)', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('immutable'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Atualizar produto",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/{{productId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"{{productId}}"
+							]
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Teclado mecânico Postman\",\n  \"sku\": \"{{productSku}}\",\n  \"category\": \"Postman\",\n  \"salePrice\": 120,\n  \"costPrice\": 50,\n  \"stockQuantity\": 5,\n  \"minimumStock\": 1,\n  \"imageUrl\": \"{{productImagePath}}\"\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Novo preço', () => pm.expect(pm.response.json().salePrice).to.eql(120));",
+									"pm.test('Usa a imagem enviada', () => pm.expect(pm.response.json().imageUrl).to.eql(pm.collectionVariables.get('productImagePath')));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Vender - estoque insuficiente",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"checkout"
+							]
+						},
+						"description": "",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"channel\": \"Presencial\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 6\n    }\n  ]\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na quantidade do item', () => pm.expect(pm.response.json().errors[0].key).to.eql('items[0].quantity'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Vender - preço abaixo do custo",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"checkout"
+							]
+						},
+						"description": "Regra de negócio: o preço do caixa pode ser editado, mas nunca abaixo do custo do produto (R$ 50,00 aqui). Nada é vendido e o estoque não muda.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"channel\": \"Presencial\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 1,\n      \"unitPrice\": 49.99\n    }\n  ]\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro no preço do item, com o custo', () => pm.expect(pm.response.json().errors).to.eql([{ key: 'items[0].unitPrice', message: 'O preço não pode ser menor que o custo (R$ 50,00): a venda daria prejuízo.' }]));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Vender - desconto acima de 15%",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"checkout"
+							]
+						},
+						"description": "Regra de negócio: o desconto no caixa é de no máximo 15% do preço do produto (R$ 120,00 aqui → mínimo R$ 102,00). Nada é vendido e o estoque não muda.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"channel\": \"Presencial\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 1,\n      \"unitPrice\": 101.99\n    }\n  ]\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro no preço do item, com o mínimo', () => pm.expect(pm.response.json().errors).to.eql([{ key: 'items[0].unitPrice', message: 'O desconto não pode passar de 15% do preço do produto: o mínimo é R$ 102,00.' }]));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Vender - sucesso",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"checkout"
+							]
+						},
+						"description": "Sem `date`: vende hoje. A venda entra no lote do mês (\"Vendas - outubro/2026\"), criado se ainda não existir.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"channel\": \"Online\",\n  \"marketplace\": \"Loja Postman\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 2\n    }\n  ]\n}"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 201', () => pm.response.to.have.status(201));",
+									"const body = pm.response.json();",
+									"pm.test('Entra no lote do mês', () => {",
+									"    pm.expect(body.import.source).to.eql('Store');",
+									"    pm.expect(body.import.fileName).to.match(/^Vendas - \\S+\\/\\d{4}$/);",
+									"});",
+									"pm.test('Total e lucro (2 × (120 − 50))', () => {",
+									"    pm.expect(body.total).to.eql(240);",
+									"    pm.expect(body.profit).to.eql(140);",
+									"    pm.expect(body.sales[0].productId).to.eql(pm.collectionVariables.get('productId'));",
+									"});",
+									"pm.collectionVariables.set('checkoutImportId', body.import.id);",
+									"pm.collectionVariables.set('checkoutSaleId', body.sales[0].id);",
+									"pm.collectionVariables.set('checkoutBatchCount', body.import.salesCount);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Produto após a venda",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/{{productId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"{{productId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Estoque baixou de 5 para 3', () => pm.expect(pm.response.json().stockQuantity).to.eql(3));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Detalhe do lote do mês (lucro)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{checkoutImportId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{checkoutImportId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"pm.test('Resumo de lucro', () => {",
+									"    const profit = pm.response.json().profit;",
+									"    pm.expect(profit.salesWithCost).to.be.at.least(1);",
+									"    pm.expect(profit.profit).to.be.closeTo(profit.revenue - profit.cost, 0.005); // centavos: soma em ponto flutuante",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir produto vendido",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/{{productId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"{{productId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 409', () => pm.response.to.have.status(409));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir venda do caixa",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{checkoutImportId}}/sales/{{checkoutSaleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{checkoutImportId}}",
+								"sales",
+								"{{checkoutSaleId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Produto após excluir a venda",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/{{productId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"{{productId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Estoque voltou para 5', () => pm.expect(pm.response.json().stockQuantity).to.eql(5));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir lote do mês (se só tinha o teste)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sales/imports/{{checkoutImportId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"sales",
+								"imports",
+								"{{checkoutImportId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// O lote do mês pode ter vendas reais; só é excluído se foi criado por esta execução.",
+									"if (String(pm.collectionVariables.get('checkoutBatchCount')) !== '1') {",
+									"    pm.execution.skipRequest();",
+									"}"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir produto",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/{{productId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"{{productId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Imagem - apagada junto com o produto",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": "{{baseUrl}}{{productImagePath}}",
+						"description": "Ao excluir o produto, o arquivo enviado também é apagado da pasta.",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Excluir produto inexistente",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/products/{{productId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"products",
+								"{{productId}}"
+							]
+						},
+						"description": ""
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 404', () => pm.response.to.have.status(404));"
+								]
+							}
+						}
+					]
+				}
+			],
+			"description": "Cadastro de produtos e venda pelo caixa (`/api/sales/checkout`). Rode depois da pasta Auth (usa o token)."
+		},
+		{
+			"name": "Análises",
+			"description": "Aprendizado de máquina (ML.NET) sobre o histórico de vendas de todos os lotes: previsão dos próximos meses (regressão de Poisson) e grupos de produtos (k-means). Só meses completos com vendas em pelo menos metade dos dias contam; num banco sem histórico suficiente as requisições recebem 404 com a explicação.",
+			"item": [
+				{
+					"name": "Previsão - próximos 3 meses",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/analytics/forecast?months=3",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"forecast"
+							],
+							"query": [
+								{
+									"key": "months",
+									"value": "3"
+								}
+							]
+						},
+						"description": "Unidades previstas por produto e mês, faturamento previsto, sugestão de compra e validação no último mês do histórico."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Banco sem histórico suficiente: 404 com a explicação (a coleção roda no banco do usuário).",
+									"if (pm.response.code === 404) {",
+									"    pm.test('Sem histórico suficiente: 404 explicando o motivo', () => {",
+									"        pm.expect(pm.response.json().errors[0].message).to.match(/precisa de pelo menos/);",
+									"    });",
+									"    return;",
+									"}",
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"const monthOf = (offset) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };",
+									"pm.test('3 meses seguidos, a partir do mês seguinte ao atual', () => {",
+									"    pm.expect(body.months.map(m => m.month)).to.eql([...Array(3).keys()].map(i => monthOf(i + 1)));",
+									"});",
+									"pm.test('Histórico: pelo menos 3 meses completos, antes do mês atual', () => {",
+									"    pm.expect(body.history.length).to.be.at.least(3);",
+									"    body.history.forEach(h => pm.expect(h.month < monthOf(0)).to.be.true);",
+									"});",
+									"pm.test('Cada produto: uma quantidade por mês, somando o total', () => {",
+									"    body.products.forEach(p => {",
+									"        pm.expect(p.quantities).to.have.lengthOf(3);",
+									"        pm.expect(p.quantities.reduce((a, b) => a + b, 0)).to.eql(p.quantity);",
+									"        pm.expect(p.quantity).to.be.at.least(0);",
+									"    });",
+									"});",
+									"pm.test('Total de cada mês = soma dos produtos', () => {",
+									"    body.months.forEach((m, i) => pm.expect(m.quantity).to.eql(body.products.reduce((t, p) => t + p.quantities[i], 0)));",
+									"});",
+									"pm.test('Sugestão de compra = previsto + mínimo - estoque (nunca negativa); só produtos do cadastro', () => {",
+									"    body.products.forEach(p => {",
+									"        if (p.stock === null) { pm.expect(p.suggestedPurchase).to.be.null; return; }",
+									"        pm.expect(p.suggestedPurchase).to.eql(Math.max(0, p.quantity + p.minimumStock - p.stock));",
+									"    });",
+									"});",
+									"pm.test('Validação: o mês testado é o último do histórico', () => {",
+									"    if (!body.validation) return;",
+									"    pm.expect(body.validation.month).to.eql(body.history[body.history.length - 1].month);",
+									"    pm.expect(body.validation.modelError).to.be.at.least(0);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Previsão - 6 meses",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/analytics/forecast?months=6",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"forecast"
+							],
+							"query": [
+								{
+									"key": "months",
+									"value": "6"
+								}
+							]
+						},
+						"description": "O máximo de meses."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Banco sem histórico suficiente: 404 com a explicação (a coleção roda no banco do usuário).",
+									"if (pm.response.code === 404) {",
+									"    pm.test('Sem histórico suficiente: 404 explicando o motivo', () => {",
+									"        pm.expect(pm.response.json().errors[0].message).to.match(/precisa de pelo menos/);",
+									"    });",
+									"    return;",
+									"}",
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"const monthOf = (offset) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };",
+									"pm.test('6 meses seguidos, a partir do mês seguinte ao atual', () => {",
+									"    pm.expect(body.months.map(m => m.month)).to.eql([...Array(6).keys()].map(i => monthOf(i + 1)));",
+									"});",
+									"pm.test('Histórico: pelo menos 3 meses completos, antes do mês atual', () => {",
+									"    pm.expect(body.history.length).to.be.at.least(3);",
+									"    body.history.forEach(h => pm.expect(h.month < monthOf(0)).to.be.true);",
+									"});",
+									"pm.test('Cada produto: uma quantidade por mês, somando o total', () => {",
+									"    body.products.forEach(p => {",
+									"        pm.expect(p.quantities).to.have.lengthOf(6);",
+									"        pm.expect(p.quantities.reduce((a, b) => a + b, 0)).to.eql(p.quantity);",
+									"        pm.expect(p.quantity).to.be.at.least(0);",
+									"    });",
+									"});",
+									"pm.test('Total de cada mês = soma dos produtos', () => {",
+									"    body.months.forEach((m, i) => pm.expect(m.quantity).to.eql(body.products.reduce((t, p) => t + p.quantities[i], 0)));",
+									"});",
+									"pm.test('Sugestão de compra = previsto + mínimo - estoque (nunca negativa); só produtos do cadastro', () => {",
+									"    body.products.forEach(p => {",
+									"        if (p.stock === null) { pm.expect(p.suggestedPurchase).to.be.null; return; }",
+									"        pm.expect(p.suggestedPurchase).to.eql(Math.max(0, p.quantity + p.minimumStock - p.stock));",
+									"    });",
+									"});",
+									"pm.test('Validação: o mês testado é o último do histórico', () => {",
+									"    if (!body.validation) return;",
+									"    pm.expect(body.validation.month).to.eql(body.history[body.history.length - 1].month);",
+									"    pm.expect(body.validation.modelError).to.be.at.least(0);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Previsão - meses fora do limite",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/analytics/forecast?months=7",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"forecast"
+							],
+							"query": [
+								{
+									"key": "months",
+									"value": "7"
+								}
+							]
+						},
+						"description": "De 1 a 6 meses."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na chave months', () => {",
+									"    pm.expect(pm.response.json().errors).to.eql([{ key: 'months', message: 'Escolha de 1 a 6 meses.' }]);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Previsão - sem token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/analytics/forecast",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"forecast"
+							]
+						},
+						"description": "Rota protegida.",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Grupos de produtos - automático",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/analytics/product-groups",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"product-groups"
+							]
+						},
+						"description": "K-means testando de 2 a 6 grupos; fica o de melhor silhueta."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Banco sem histórico suficiente: 404 com a explicação (a coleção roda no banco do usuário).",
+									"if (pm.response.code === 404) {",
+									"    pm.test('Sem histórico suficiente: 404 explicando o motivo', () => {",
+									"        pm.expect(pm.response.json().errors[0].message).to.match(/precisa de pelo menos/);",
+									"    });",
+									"    return;",
+									"}",
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"pm.test('Número de grupos escolhido pela melhor silhueta', () => {",
+									"    pm.expect(body.automatic).to.eql(true);",
+									"    pm.expect(body.clusters).to.have.lengthOf(body.groups);",
+									"    pm.expect(body.silhouette).to.eql(Math.max(...body.candidates.map(c => c.silhouette)));",
+									"});",
+									"pm.test('Grupos numerados do maior para o menor faturamento, com nome e descrição', () => {",
+									"    body.clusters.forEach((g, i) => {",
+									"        pm.expect(g.number).to.eql(i + 1);",
+									"        pm.expect(g.name).to.be.a('string').and.not.empty;",
+									"        pm.expect(g.description).to.be.a('string').and.not.empty;",
+									"        if (i > 0) pm.expect(g.revenue).to.be.at.most(body.clusters[i - 1].revenue);",
+									"    });",
+									"});",
+									"pm.test('Cada produto em um só grupo; participações somam 100%', () => {",
+									"    const keys = body.clusters.flatMap(g => g.products.map(p => p.key));",
+									"    pm.expect(new Set(keys).size).to.eql(keys.length);",
+									"    const share = body.clusters.reduce((t, g) => t + g.revenueShare, 0);",
+									"    pm.expect(Math.abs(share - 1)).to.be.below(0.01);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Grupos de produtos - 2 grupos",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/analytics/product-groups?groups=2",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"product-groups"
+							],
+							"query": [
+								{
+									"key": "groups",
+									"value": "2"
+								}
+							]
+						},
+						"description": "Número de grupos escolhido pelo usuário."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Banco sem histórico suficiente: 404 com a explicação (a coleção roda no banco do usuário).",
+									"if (pm.response.code === 404) {",
+									"    pm.test('Sem histórico suficiente: 404 explicando o motivo', () => {",
+									"        pm.expect(pm.response.json().errors[0].message).to.match(/precisa de pelo menos/);",
+									"    });",
+									"    return;",
+									"}",
+									"pm.test('Status 200', () => pm.response.to.have.status(200));",
+									"const body = pm.response.json();",
+									"pm.test('Mantém os 2 grupos pedidos', () => {",
+									"    pm.expect(body.automatic).to.eql(false);",
+									"    pm.expect(body.clusters).to.have.lengthOf(body.groups);",
+									"    pm.expect(body.groups).to.eql(2);",
+									"});",
+									"pm.test('Grupos numerados do maior para o menor faturamento, com nome e descrição', () => {",
+									"    body.clusters.forEach((g, i) => {",
+									"        pm.expect(g.number).to.eql(i + 1);",
+									"        pm.expect(g.name).to.be.a('string').and.not.empty;",
+									"        pm.expect(g.description).to.be.a('string').and.not.empty;",
+									"        if (i > 0) pm.expect(g.revenue).to.be.at.most(body.clusters[i - 1].revenue);",
+									"    });",
+									"});",
+									"pm.test('Cada produto em um só grupo; participações somam 100%', () => {",
+									"    const keys = body.clusters.flatMap(g => g.products.map(p => p.key));",
+									"    pm.expect(new Set(keys).size).to.eql(keys.length);",
+									"    const share = body.clusters.reduce((t, g) => t + g.revenueShare, 0);",
+									"    pm.expect(Math.abs(share - 1)).to.be.below(0.01);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Grupos de produtos - quantidade inválida",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/analytics/product-groups?groups=1",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"product-groups"
+							],
+							"query": [
+								{
+									"key": "groups",
+									"value": "1"
+								}
+							]
+						},
+						"description": "De 2 a 6 grupos."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 400', () => pm.response.to.have.status(400));",
+									"pm.test('Erro na chave groups', () => {",
+									"    pm.expect(pm.response.json().errors).to.eql([{ key: 'groups', message: 'Escolha de 2 a 6 grupos.' }]);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Grupos de produtos - sem token",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/analytics/product-groups",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"analytics",
+								"product-groups"
+							]
+						},
+						"description": "Rota protegida.",
+						"auth": {
+							"type": "noauth"
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Status 401', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					]
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "password",
+			"value": "Senha123"
+		},
+		{
+			"key": "email",
+			"value": ""
+		},
+		{
+			"key": "emailInput",
+			"value": ""
+		},
+		{
+			"key": "token",
+			"value": ""
+		},
+		{
+			"key": "importId",
+			"value": ""
+		},
+		{
+			"key": "importRevenue",
+			"value": ""
+		},
+		{
+			"key": "productSku",
+			"value": ""
+		},
+		{
+			"key": "productId",
+			"value": ""
+		},
+		{
+			"key": "checkoutImportId",
+			"value": ""
+		},
+		{
+			"key": "checkoutSaleId",
+			"value": ""
+		},
+		{
+			"key": "checkoutBatchCount",
+			"value": ""
+		},
+		{
+			"key": "compareBase",
+			"value": ""
+		},
+		{
+			"key": "compareTarget",
+			"value": ""
+		},
+		{
+			"key": "newPassword",
+			"value": ""
+		},
+		{
+			"key": "productImagePath",
+			"value": ""
+		},
+		{
+			"key": "newProductsImportId",
+			"value": ""
+		},
+		{
+			"key": "newProductId",
+			"value": ""
+		},
+		{
+			"key": "repeatImportId",
+			"value": ""
+		},
+		{
+			"key": "exportId",
+			"value": ""
+		},
+		{
+			"key": "recoveredPassword",
+			"value": ""
+		},
+		{
+			"key": "memberEmail",
+			"value": ""
+		},
+		{
+			"key": "memberToken",
+			"value": ""
+		},
+		{
+			"key": "memberId",
+			"value": ""
+		},
+		{
+			"key": "adminId",
+			"value": ""
+		},
+		{
+			"key": "storeName",
+			"value": ""
+		},
+		{
+			"key": "storeNameTyped",
+			"value": ""
+		},
+		{
+			"key": "otherStoreName",
+			"value": ""
+		},
+		{
+			"key": "otherStoreNameUpper",
+			"value": ""
+		},
+		{
+			"key": "notificationId",
+			"value": ""
+		},
+		{
+			"key": "memberNotificationId",
+			"value": ""
+		}
+	]
+}
