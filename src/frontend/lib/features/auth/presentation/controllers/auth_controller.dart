@@ -110,3 +110,20 @@ class AuthController extends AsyncNotifier<User?> {
 final authControllerProvider = AsyncNotifierProvider<AuthController, User?>(
   AuthController.new,
 );
+
+/// Who is logged in and in which store: `(userId, storeId)`, nulls when logged out or without a
+/// store. Every cached list of store data watches it, so logging out, switching accounts or
+/// entering another store reloads it instead of showing the previous user's data.
+/// Without a store ([hasStoreData] false) the lists stay empty: no request is sent.
+final sessionScopeProvider = Provider<(String?, String?)>(
+  (ref) => ref.watch(
+    authControllerProvider.select(
+      (auth) => (auth.value?.id, auth.value?.store?.id),
+    ),
+  ),
+);
+
+/// False when logged out or without a store: lists of store data stay empty.
+extension SessionScope on (String?, String?) {
+  bool get hasStoreData => $1 != null && $2 != null;
+}

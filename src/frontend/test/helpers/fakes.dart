@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/misc.dart';
+import 'package:univesp_project/features/auth/presentation/controllers/auth_controller.dart';
 import 'package:univesp_project/core/errors/failure.dart';
 import 'package:univesp_project/core/files/file_service.dart';
 import 'package:univesp_project/core/storage/token_storage.dart';
@@ -1241,3 +1243,10 @@ class FakeNotificationRepository implements NotificationRepository {
     return count;
   }
 }
+
+/// For screens tested without the auth flow: someone is logged in a store, so the store
+/// lists load (they stay empty without a session; see [sessionScopeProvider]).
+final Override loggedInStore = sessionScopeProvider.overrideWithValue((
+  '1',
+  fakeAdminStore.id,
+));

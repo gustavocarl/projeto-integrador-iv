@@ -19,7 +19,10 @@ Future<FakeSalesRepository> _pump(
     ..months = [for (final m in months) fakeMonth(m, 'mês $m', 1000)];
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [salesRepositoryProvider.overrideWithValue(repository)],
+      overrides: [
+        loggedInStore,
+        salesRepositoryProvider.overrideWithValue(repository),
+      ],
       child: const MaterialApp(home: Scaffold(body: MonthComparisonPage())),
     ),
   );

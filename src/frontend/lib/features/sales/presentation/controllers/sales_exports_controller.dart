@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../auth/presentation/controllers/auth_controller.dart';
+
 import '../../data/repositories/sales_export_repository_impl.dart';
 import '../../domain/entities/sales_export.dart';
 import '../../domain/entities/sales_period.dart';
@@ -7,8 +9,10 @@ import '../../domain/entities/sales_period.dart';
 /// Generated spreadsheets (Exportações). Actions throw Failure for the screen's runSafely.
 class SalesExportsController extends AsyncNotifier<List<SalesExport>> {
   @override
-  Future<List<SalesExport>> build() =>
-      ref.read(salesExportRepositoryProvider).list();
+  Future<List<SalesExport>> build() {
+    if (!ref.watch(sessionScopeProvider).hasStoreData) return Future.value([]);
+    return ref.read(salesExportRepositoryProvider).list();
+  }
 
   /// Generates and keeps the spreadsheet of [period]; it goes to the top of the list.
   Future<SalesExport> create(SalesPeriod period) async {

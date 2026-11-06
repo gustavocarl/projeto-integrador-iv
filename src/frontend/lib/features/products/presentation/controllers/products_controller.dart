@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../auth/presentation/controllers/auth_controller.dart';
+
 import '../../data/repositories/product_repository_impl.dart';
 import '../../domain/entities/product.dart';
 
@@ -13,8 +15,19 @@ class ProductsController extends AsyncNotifier<List<Product>> {
 
   ProductFilter get filter => _filter;
 
+  /// Whose catalog [_filter] belongs to.
+  (String?, String?)? _scope;
+
   @override
-  Future<List<Product>> build() => _load();
+  Future<List<Product>> build() {
+    // Another user or store: start over, filter included ("Tentar novamente" keeps it).
+    final scope = ref.watch(sessionScopeProvider);
+    if (scope != _scope) {
+      _scope = scope;
+      _filter = const ProductFilter();
+    }
+    return scope.hasStoreData ? _load() : Future.value(const []);
+  }
 
   Future<void> setFilter(ProductFilter filter) async {
     _filter = filter;

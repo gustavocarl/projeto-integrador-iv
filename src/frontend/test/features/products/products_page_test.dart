@@ -46,7 +46,10 @@ Future<FakeProductRepository> _pump(
       ]);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [productRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        loggedInStore,
+        productRepositoryProvider.overrideWithValue(repo),
+      ],
       child: const MaterialApp(home: ProductsPage()),
     ),
   );
@@ -276,6 +279,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          loggedInStore,
           productRepositoryProvider.overrideWithValue(repo),
           authRepositoryProvider.overrideWithValue(
             FakeAuthRepository(sessionUser: FakeAuthRepository.maria),
@@ -380,6 +384,7 @@ Future<void> _pumpWithFiles(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        loggedInStore,
         productRepositoryProvider.overrideWithValue(repo),
         fileServiceProvider.overrideWithValue(files),
       ],

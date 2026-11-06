@@ -3,6 +3,7 @@ import '../../../analytics/presentation/controllers/analytics_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/files/file_service.dart';
+import '../../../auth/presentation/controllers/auth_controller.dart';
 import '../../../products/presentation/controllers/products_controller.dart';
 import '../../data/repositories/sales_repository_impl.dart';
 import '../../domain/entities/sale.dart';
@@ -12,8 +13,10 @@ import 'month_comparison_providers.dart';
 /// List of batches. Actions throw [Failure] so the screen's [BaseState.runSafely] shows them.
 class SalesImportsController extends AsyncNotifier<List<SalesImport>> {
   @override
-  Future<List<SalesImport>> build() =>
-      ref.read(salesRepositoryProvider).listImports();
+  Future<List<SalesImport>> build() {
+    if (!ref.watch(sessionScopeProvider).hasStoreData) return Future.value([]);
+    return ref.read(salesRepositoryProvider).listImports();
+  }
 
   Future<SalesImport> importSpreadsheet(PickedFile file) async {
     final created = await ref

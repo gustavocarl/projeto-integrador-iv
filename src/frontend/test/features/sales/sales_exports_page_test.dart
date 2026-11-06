@@ -21,6 +21,7 @@ Future<(FakeSalesExportRepository, FakeFileService)> _pump(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        loggedInStore,
         salesExportRepositoryProvider.overrideWithValue(repo),
         fileServiceProvider.overrideWithValue(files),
       ],
